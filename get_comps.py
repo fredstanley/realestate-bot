@@ -123,9 +123,9 @@ def get_comps(lat, lon, api_key):
     params = {
         'latitude': lat,
         'longitude': lon,
-        'radius': 1,        # Default 1 mile
+        'radius': 1,        # 1 mile
         'time_frame': 24,   # 2 years (24 months)
-        'max_results': 5
+        'max_results': 50   # Dump all (up to 50)
     }
     
     try:
@@ -139,6 +139,43 @@ def get_comps(lat, lon, api_key):
             return None, f"Comps API Error: {response.status_code} - {response.text}"
     except requests.exceptions.RequestException as e:
         return None, f"Comps Request Error: {e}"
+
+def get_school_districts(lat, lon):
+    """
+    Fetches school district information from the US Census Bureau Geocoding API.
+    Returns a set of district IDs/Names to use for comparison.
+    """
+    url = "https://geocoding.geo.census.gov/geocoder/geographies/coordinates"
+    params = {
+        'x': lon,
+        'y': lat,
+        'benchmark': 'Public_AR_Current',
+        'vintage': 'Current_Current',
+        'layers': 'Unified School Districts,Secondary School Districts,Elementary School Districts',
+        'format': 'json'
+    }
+    
+    districts = {}
+    try:
+        response = requests.get(url, params=params, timeout=10)
+        if response.status_code == 200:
+            data = response.json()
+            geographies = data.get('result', {}).get('geographies', {})
+            
+            for layer_name, items in geographies.items():
+                if 'School Districts' in layer_name:
+                    # Use the first item found for the layer (usually only one district per level)
+                    if items:
+                        item = items[0]
+                        # Key by layer type (e.g., 'Elementary School Districts')
+                        # Value is the GEOID which is unique, or NAME
+                        districts[layer_name] = {
+                            'name': item.get('NAME', ''),
+                            'id': item.get('GEOID', '')
+                        }
+        return districts, None
+    except Exception as e:
+        return None, f"Census API Error: {e}"
 
 def haversine(lat1, lon1, lat2, lon2):
     """
@@ -208,6 +245,13 @@ def find_comps(full_address, api_key):
         comp_zip = comp.get('zipCode')
         if target_zip and comp_zip != target_zip:
             continue
+
+        # Transaction Type Filter (Exclude non-market transfers)
+        doc_type = comp.get('transferDocType', '')
+        # IT = Intrafamily/Internal Transfer, QD = Quitclaim Deed
+        if doc_type in ['IT', 'QD']:
+            # print(f"DEBUG: Skipping {comp.get('address')} (Type: {doc_type})")
+            continue
             
         # Calculate Distance
         dist_val = float('inf')
@@ -231,14 +275,104 @@ def find_comps(full_address, api_key):
             "baths": comp.get('totalBathrooms', 'N/A'),
             "distance": dist_str,
             "_raw_date": sale_date,
-            "dist_val": dist_val
+            "dist_val": dist_val,
+            "_lat": comp.get('latitude'),
+            "_lon": comp.get('longitude')
         }
         valid_comps.append(formatted_comp)
 
     # Sort by date descending
     valid_comps.sort(key=lambda x: x['_raw_date'], reverse=True)
     
-    return valid_comps[:5], None
+    # --- Step 5: Strict School Verification (Census API) ---
+    print(f"   > Pre-filtered to {len(valid_comps)} comps based on radius/zip/date.")
+    print("   > Verifying School Districts via US Census API (this may take a moment)...")
+    
+    # Get Subject Districts
+    subj_districts, err = get_school_districts(lat, lon)
+    if err:
+        print(f"   Warning: Could not fetch subject districts ({err}). Skipping strict school check.")
+        return valid_comps, None
+    
+    if not subj_districts:
+        print("   Warning: No school districts found for subject property. Skipping strict school check.")
+        return valid_comps, None
+        
+    print(f"   > Subject Districts: {', '.join([d['name'] for d in subj_districts.values()])}")
+    
+    verified_comps = []
+    print(f"   > Checking {len(valid_comps)} candidates...")
+    
+    verified_comps = []
+    print(f"   > Checking {len(valid_comps)} candidates...")
+    
+    for i, comp in enumerate(valid_comps, 1):
+        c_lat = comp.get('_lat')
+        c_lon = comp.get('_lon')
+        
+        if not c_lat or not c_lon:
+            print(f"     [{i}/{len(valid_comps)}] Skip {comp['address']} (Missing Coords)")
+            continue
+            
+        # Get Comp Districts
+        c_districts, err = get_school_districts(c_lat, c_lon)
+        if err or not c_districts:
+            print(f"     [{i}/{len(valid_comps)}] Skip {comp['address']} (District lookup failed)")
+            continue
+            
+        # --- Granular Scoring Logic ---
+        # Unified = Elem + Mid + High (3)
+        # Elementary District = Elem + Mid (2)
+        # Secondary District = High (1)
+        
+        matched_names = []
+        matched_levels = []
+        score = 0
+        
+        # Check Unified
+        s_uni = subj_districts.get('Unified School Districts')
+        c_uni = c_districts.get('Unified School Districts')
+        if s_uni and c_uni and s_uni['id'] == c_uni['id']:
+            matched_levels.extend(['Elementary', 'Middle', 'High'])
+            matched_names.append(f"{s_uni['name']} (K-12)")
+            score += 3
+        else:
+            # Check Elementary (Worth 2: Elem + Mid)
+            s_elem = subj_districts.get('Elementary School Districts')
+            c_elem = c_districts.get('Elementary School Districts')
+            if s_elem and c_elem and s_elem['id'] == c_elem['id']:
+                matched_levels.extend(['Elementary', 'Middle'])
+                matched_names.append(f"{s_elem['name']} (Elem/Mid)")
+                score += 2
+                
+            # Check Secondary (Worth 1: High)
+            s_sec = subj_districts.get('Secondary School Districts')
+            c_sec = c_districts.get('Secondary School Districts')
+            if s_sec and c_sec and s_sec['id'] == c_sec['id']:
+                matched_levels.append('High')
+                matched_names.append(f"{s_sec['name']} (High)")
+                score += 1
+        
+        if score > 0:
+            match_str = f"{score} Match"
+            # if score < 3:
+            #      match_str += f": {', '.join(matched_levels)}"
+                 
+            print(f"     [{i}/{len(valid_comps)}] KEEP ({match_str}): {comp['address']}")
+            
+            comp['match_score'] = score
+            comp['match_desc'] = match_str
+            comp['matched_names'] = matched_names
+            comp['districts'] = [d['name'] for d in c_districts.values()]
+            verified_comps.append(comp)
+        else:
+            print(f"     [{i}/{len(valid_comps)}] REJECT (0 Match): {comp['address']}")
+
+    # Sort by Score (Desc), then by Date (Desc)
+    verified_comps.sort(key=lambda x: (x['match_score'], x['_raw_date']), reverse=True)
+
+    print(f"   > Verification Complete. {len(verified_comps)} comps retained.")
+    return verified_comps, None
 
 def main():
     import sys
@@ -260,10 +394,13 @@ def main():
         print("No comps found.")
         return
 
-    print(f"\n--- Top {len(comps)} Comps (Last 2 Years, Same Zip Code) ---")
+    print(f"\n--- Found {len(comps)} Comps (Sorted by School Match, then Date) ---")
     
     for i, comp in enumerate(comps, 1):
-        print(f"{i}. {comp['address']}")
+        print(f"{i}. [{comp.get('match_desc', 'N/A')}] {comp['address']}")
+        matches = comp.get('matched_names', [])
+        if matches:
+            print(f"   Matches: {', '.join(matches)}")
         print(f"   Sold: ${comp['price']} on {comp['date']}")
         print(f"   Size: {comp['sqft']} sqft | {comp['beds']} Beds / {comp['baths']} Baths")
         print(f"   Dist: {comp['distance']} miles\n")

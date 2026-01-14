@@ -1,6 +1,8 @@
 import streamlit as st
 import os
 import pandas as pd
+import io
+import contextlib
 from get_comps import find_comps
 
 # Page Config
@@ -8,7 +10,7 @@ st.set_page_config(page_title="Realie.ai Comps Finder", page_icon="🏠")
 
 # Title and Description
 st.title("🏠 Real Estate Comps Finder")
-st.markdown("Find the top 5 comparable properties (sold in the last 2 years) using **Realie.ai**.")
+st.markdown("Find the top comp properties (sold in the last 24 months) using **Realie.ai** with Census School Verification.")
 
 # Sidebar for API Key
 with st.sidebar:
@@ -27,14 +29,19 @@ if st.button("Find Comps", type="primary"):
         st.error("Please enter an address.")
     else:
         with st.spinner("Fetching comps..."):
-            comps, error = find_comps(address_input, api_key_input)
+            # Capture stdout
+            f = io.StringIO()
+            with contextlib.redirect_stdout(f):
+                comps, error = find_comps(address_input, api_key_input)
+            
+            output_log = f.getvalue()
             
             if error:
                 st.error(error)
             elif not comps:
-                st.info("No comps found matching the criteria (Last 2 years, Same Zip Code).")
+                st.info("No comps found matching the criteria (1 Mile, 24 Months, Same Zip/School).")
             else:
-                st.success(f"Found {len(comps)} comps!")
+                st.success(f"Found {len(comps)} comps! (Sorted by School Match)")
                 
                 # Display metrics for the best comp
                 best_comp = comps[0]
@@ -45,17 +52,20 @@ if st.button("Find Comps", type="primary"):
                 
                 # Create DataFrame for display
                 df = pd.DataFrame(comps)
+                
+                # Expand matched names to string
+                df['matches_str'] = df['matched_names'].apply(lambda x: ', '.join(x) if isinstance(x, list) else "")
+                
                 # Reorder/Rename columns for display
                 display_df = df[[
-                    "address", "price", "date", "sqft", "beds", "baths", "distance"
+                    "address", "price", "date", "sqft", "beds", "baths", "distance", "match_desc", "matches_str"
                 ]].copy()
                 
-                display_df.columns = ["Address", "Sold Price", "Date Sold", "SqFt", "Beds", "Baths", "Dist (mi)"]
+                display_df.columns = ["Address", "Sold Price", "Date Sold", "SqFt", "Beds", "Baths", "Dist (mi)", "Match Level", "Matched Schools"]
                 
-                # Format price column
-                # display_df["Sold Price"] = display_df["Sold Price"].apply(lambda x: f"${x:,}" if isinstance(x, (int, float)) else x)
-
-                st.dataframe(display_df, use_container_width=True)
+                st.dataframe(display_df, use_container_width=True, hide_index=True)
                 
-                # Map view (optional, if lat/lon were preserved in output)
-                # For now just list view
+            # Display Execution Log
+            st.divider()
+            st.subheader("Execution Log")
+            st.code(output_log, language="text")

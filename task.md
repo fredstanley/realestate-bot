@@ -4,11 +4,20 @@
     - [x] Fetch property coordinates
     - [x] Fetch comparable properties
 - [x] Implement filtering logic
-    - [x] Filter by date (last 2 years)
-    - [x] Filter by zip code
+    - [x] Filter by date (last 24 months)
+    - [x] Filter by zip code (School proxy)
+    - [x] Verify School District (Census API)
+    - [x] Radius 1 mile
+    - [x] Granular School Scoring (3 Matches)
+    - [x] List matching schools logic
+    - [x] Full list output
+    - [x] Market Sale Filter (Exclude 'IT'/'QD')
 - [x] Build Streamlit UI
     - [x] Address input
     - [x] Display comps table
     - [x] Display metrics
+    - [x] Matched Schools Column
+    - [x] Execution Log Display
+    - [x] Custom Column Order
 - [ ] Add Map View (optional)
 - [ ] Improve Error Handling
