@@ -275,6 +275,10 @@ def find_comps(full_address, radius, api_key):
         if target_zip and comp_zip != target_zip:
             continue
 
+        # Residential Filter (Exclude explicitly non-residential)
+        if comp.get('residential') is False:
+             continue
+
         # Transaction Type Filter (Exclude non-market transfers)
         # User requested to see OFF MARKET sales which might be 'IT'
         doc_type = comp.get('transferDocType', '')
@@ -287,7 +291,7 @@ def find_comps(full_address, radius, api_key):
             try:
                 s_sqft_val = float(subject_sqft)
                 c_sqft_val = float(c_sqft)
-                if abs(s_sqft_val - c_sqft_val) > 300:
+                if abs(s_sqft_val - c_sqft_val) > 500:
                     # print(f"DEBUG: Skipping {comp.get('address')} (SqFt: {c_sqft} vs Subject: {subject_sqft})")
                     continue
             except (ValueError, TypeError):
