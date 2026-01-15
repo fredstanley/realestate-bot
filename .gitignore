@@ -3,3 +3,4 @@ __pycache__/
 .venv/
 .coords_cache.json
 .DS_Store
+.env

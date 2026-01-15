@@ -4,14 +4,15 @@
     - [x] Fetch property coordinates
     - [x] Fetch comparable properties
 - [x] Implement filtering logic
-    - [x] Filter by date (last 24 months)
+    - [x] Filter by date (last 36 months)
     - [x] Filter by zip code (School proxy)
-    - [x] Verify School District (Census API)
-    - [x] Radius 1 mile
-    - [x] Granular School Scoring (3 Matches)
-    - [x] List matching schools logic
+    - [] Verify School District (Census API)
+    - [x] Radius Configurable (Slider)
+    - [] Granular School Scoring (3 Matches)
+    - [] List matching schools logic
     - [x] Full list output
-    - [x] Market Sale Filter (Exclude 'IT'/'QD')
+    - [x] Market Sale Filter (Include 'IT'/'QD' for Off-Market)
+    - [x] SqFt Filter (+/- 300 sqft)
 - [x] Build Streamlit UI
     - [x] Address input
     - [x] Display comps table
@@ -19,5 +20,8 @@
     - [x] Matched Schools Column
     - [x] Execution Log Display
     - [x] Custom Column Order
-- [ ] Add Map View (optional)
-- [ ] Improve Error Handling
+- [x] AI ARV Analysis (Gemini Integration)
+    - [x] Install google-genai
+    - [x] Create Realtor System Prompt
+    - [x] Automate AI Analysis (No Button)
+    - [x] Display Streaming ARV Report

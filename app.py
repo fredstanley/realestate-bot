@@ -3,7 +3,28 @@ import os
 import pandas as pd
 import io
 import contextlib
-from get_comps import find_comps
+from dotenv import load_dotenv
+from get_comps import find_comps, parse_address_string
+from google import genai
+
+load_dotenv()
+
+@st.cache_data(show_spinner=False)
+def get_comps_with_log(address, radius, api_key):
+    # Capture stdout
+    f = io.StringIO()
+    with contextlib.redirect_stdout(f):
+        comps, raw_comps, error = find_comps(address, radius, api_key)
+    return comps, raw_comps, error, f.getvalue()
+
+@st.cache_data(show_spinner=False)
+def generate_arv_analysis(api_key, model_name, prompt):
+    client = genai.Client(api_key=api_key)
+    response = client.models.generate_content(
+        model=model_name,
+        contents=prompt
+    )
+    return response.text
 
 # Page Config
 st.set_page_config(page_title="Realie.ai Comps Finder", page_icon="🏠")
@@ -18,6 +39,14 @@ with st.sidebar:
     api_key_input = st.text_input("Realie API Key", type="password", value=os.getenv("REALIE_API_KEY", ""))
     if not api_key_input:
         st.warning("Please enter your API Key to proceed.")
+        
+    # Gemini API Key
+    default_gemini_key = os.getenv("GEMINI_API_KEY", "")
+    gemini_key = st.sidebar.text_input("Gemini API Key", type="password", value=default_gemini_key)
+    
+    # Radius Slider
+    st.divider()
+    search_radius = st.sidebar.slider("Search Radius (Miles)", min_value=0.1, max_value=5.0, value=1.0, step=0.1)
 
 # Main Input
 address_input = st.text_input("Enter Property Address", placeholder="e.g. 2048 Mayfield Ave, San Jose, CA 95130", help="Format: Street, City, State Zip")
@@ -29,17 +58,14 @@ if st.button("Find Comps", type="primary"):
         st.error("Please enter an address.")
     else:
         with st.spinner("Fetching comps..."):
-            # Capture stdout
-            f = io.StringIO()
-            with contextlib.redirect_stdout(f):
-                comps, error = find_comps(address_input, api_key_input)
-            
-            output_log = f.getvalue()
+            comps, raw_comps, error, output_log = get_comps_with_log(address_input, search_radius, api_key_input)
             
             if error:
                 st.error(error)
             elif not comps:
                 st.info("No comps found matching the criteria (1 Mile, 24 Months, Same Zip/School).")
+                if raw_comps:
+                    st.warning(f"However, {len(raw_comps)} raw comps were returned from the API. Check 'Raw API Response' below.")
             else:
                 st.success(f"Found {len(comps)} comps! (Sorted by School Match)")
                 
@@ -64,8 +90,87 @@ if st.button("Find Comps", type="primary"):
                 display_df.columns = ["Address", "Sold Price", "Date Sold", "SqFt", "Beds", "Baths", "Dist (mi)", "Match Level", "Matched Schools"]
                 
                 st.dataframe(display_df, use_container_width=True, hide_index=True)
+
+
+            # AI ARV Analysis
+            st.divider()
+            st.header("🤖 AI ARV Analysis")
+            
+            if not gemini_key:
+                st.error("Please enter your Gemini API Key in the sidebar.")
+            else:
+                try:
+                    # model name is hardcoded or could be passed? logic was:
+                    model_name = 'gemini-3-pro-preview'
+                    
+                    # Prepare Context
+                    subject_desc = f"{address_input} (Subject)" 
+                    
+                    # Parse subject zip for filtering raw comps
+                    parsed_addr = parse_address_string(address_input)
+                    subject_zip = parsed_addr.get('zip_code') if parsed_addr else None
+                    
+                    filtered_raw_string = "No raw data available."
+                    if raw_comps:
+                        # Filter raw comps by zip
+                        if subject_zip:
+                            # Ensure loose matching (str vs int)
+                            zip_filtered = [c for c in raw_comps if str(c.get('zipCode', '')) == str(subject_zip)]
+                        else:
+                            zip_filtered = raw_comps
+                            
+                        if zip_filtered:
+                             filtered_raw_string = pd.DataFrame(zip_filtered)[['address', 'transferPrice', 'transferDate', 'buildingArea', 'totalBedrooms', 'totalBathrooms']].rename(columns={'transferPrice':'price', 'buildingArea':'sqft', 'totalBedrooms':'beds', 'totalBathrooms':'baths', 'transferDate':'date'}).to_string(index=False)
+                        else:
+                             filtered_raw_string = f"No raw comps found in zip {subject_zip}."
+
+                    prompt = f"""
+                    You are a Senior Real Estate Appraiser with 20 years of experience in the California market.
+                    
+                    **Objective**: Determine the After Repair Value (ARV) for the Subject Property based on the provided comps.
+                    
+                    **Subject Property**: {subject_desc}
+                    
+                    **Verified Comparable Properties (Filtered - High Confidence)**:
+                    {display_df.to_string(index=False)}
+
+                    **Raw Market Data (Unfiltered - Same Zip Only)**:
+                    The following are properties from the same zip code ({subject_zip}) returned by the search. Use these for broader market context.
+                    {filtered_raw_string}
+                    
+                    **Task**:
+                    1. Analyze the matched comps. Prioritize "3 Match" schools and recent sales.
+                    2. Adjust for differences in square footage, bed/bath count, and date.
+                    3. Provide a estimated ARV range and a recommended list price.
+                    4. Explain your reasoning clearly.
+                    """
+                    
+                    st.subheader("Fiz Real Estate Agent")
+                    
+                    with st.spinner("Generating ARV Analysis..."):
+                        full_response = generate_arv_analysis(gemini_key, model_name, prompt)
+                        st.markdown(full_response)
+                    
+                except Exception as e:
+                    st.error(f"AI Analysis Failed: {e}")
                 
             # Display Execution Log
             st.divider()
+            
+            with st.expander("Raw API Response (All Comps)", expanded=False):
+                if raw_comps:
+                    st.write(f"Total Raw Comps: {len(raw_comps)}")
+                    raw_df = pd.DataFrame(raw_comps)
+                    # Filter columns for readability if possible, or dump all? User said "dump all".
+                    # Let's show specific useful columns first if they exist
+                    cols = ['address', 'price', 'transferDate', 'buildingArea', 'bedrooms', 'bathroomsFull', 'bathsTotal', 'zipCode', 'transferDocType']
+                    # Keep only columns that exist
+                    valid_cols = [c for c in cols if c in raw_df.columns]
+                    # If valid_cols found, put them first, but keep others? Or just dump.
+                    # Let's just dump the dataframe, Streamlit handles searching/scrolling well.
+                    st.dataframe(raw_df)
+                else:
+                    st.write("No raw comps data available.")
+
             st.subheader("Execution Log")
             st.code(output_log, language="text")
