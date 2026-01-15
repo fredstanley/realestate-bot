@@ -67,7 +67,7 @@ if st.button("Find Comps", type="primary"):
                 if raw_comps:
                     st.warning(f"However, {len(raw_comps)} raw comps were returned from the API. Check 'Raw API Response' below.")
             else:
-                st.success(f"Found {len(comps)} comps! (Sorted by School Match)")
+                st.success(f"Found {len(comps)} comps! (Sorted by Price: High to Low)")
                 
                 # Display metrics for the best comp
                 best_comp = comps[0]

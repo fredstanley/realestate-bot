@@ -40,7 +40,7 @@ def get_comps(lat, lon, radius):
     return []
 
 def main():
-    target_addr = "3212 Brownhill Ct, San Jose, CA 95135"
+    target_addr = "15158 Charmeran Ave, San Jose, CA 95124"
     print(f"Analyzing comps for: {target_addr}")
     
     subject = get_property_details(target_addr)
@@ -100,8 +100,9 @@ def main():
                         reason = f"SqFt Diff ({curr_sqft} vs {subj_sqft_val})"
                 except:
                     reason = "SqFt Error"
-                    
+
         # 5. Price
+        price = 0
         if reason == "PASS":
             try:
                 price = float(c.get('transferPrice', 0) or 0)
@@ -110,7 +111,7 @@ def main():
             except:
                 pass
                 
-        print(f"{i+1}. {addr}: {reason}")
+        print(f"{i+1}. {addr}: {reason} [Price: ${price}]")
 
 if __name__ == "__main__":
     main()

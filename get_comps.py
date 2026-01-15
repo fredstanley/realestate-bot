@@ -429,29 +429,33 @@ def find_comps(full_address, radius, api_key):
     verified_comps = valid_comps
     
     # --- Step 6: Outlier Filter (User Request: "500k different to remove anomalies") ---
+    # FILTER DISABLED BY USER REQUEST (Too aggressive for volatile markets)
     # Only apply if we have enough data (>= 3) to establish a baseline.
-    if len(verified_comps) >= 3:
-        prices = [float(c['price']) for c in verified_comps if c['price'] != 'N/A' and float(c['price']) > 0]
-        if prices:
-            import statistics
-            median_price = statistics.median(prices)
-            # Filter
-            final_comps = []
-            for comp in verified_comps:
-                try:
-                    p = float(comp['price'])
-                    if abs(p - median_price) > 500000:
-                        # print(f"DEBUG: Removing Outlier {comp['address']} (${p}) - Median: ${median_price}")
-                        continue
-                except (ValueError, TypeError):
-                    pass
-                final_comps.append(comp)
-            verified_comps = final_comps
+    # if len(verified_comps) >= 3:
+    #     prices = [float(c['price']) for c in verified_comps if c['price'] != 'N/A' and float(c['price']) > 0]
+    #     if prices:
+    #         import statistics
+    #         median_price = statistics.median(prices)
+    #         # Filter
+    #         final_comps = []
+    #         for comp in verified_comps:
+    #             try:
+    #                 p = float(comp['price'])
+    #                 if abs(p - median_price) > 500000:
+    #                     # print(f"DEBUG: Removing Outlier {comp['address']} (${p}) - Median: ${median_price}")
+    #                     continue
+    #             except (ValueError, TypeError):
+    #                 pass
+    #             final_comps.append(comp)
+    #         verified_comps = final_comps
             
     for comp in verified_comps:
         comp['match_desc'] = "N/A"
         comp['matched_names'] = []
-        
+
+    # Sort by Price (High to Low) as requested
+    verified_comps.sort(key=lambda x: float(x.get('price', 0) if str(x.get('price', 0)).replace('.','',1).isdigit() else 0), reverse=True)
+
     return verified_comps, raw_comps, None
 
 def main():
@@ -477,7 +481,7 @@ def main():
              print(f"However, {len(raw)} raw comps were fetched from API.")
         return
 
-    print(f"\n--- Found {len(comps)} Comps (Sorted by School Match, then Date) ---")
+    print(f"\n--- Found {len(comps)} Comps (Sorted by Price: High to Low) ---")
     
     for i, comp in enumerate(comps, 1):
         print(f"{i}. [{comp.get('match_desc', 'N/A')}] {comp['address']}")
