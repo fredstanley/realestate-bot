@@ -227,12 +227,12 @@ def find_comps(full_address, radius, api_key):
     # 1. Parse
     parsed = parse_address_string(full_address)
     if not parsed:
-        return None, None, "Error: Could not parse address. Please use format: 'Address, City, State Zip'"
+        return None, None, None, "Error: Could not parse address. Please use format: 'Address, City, State Zip'"
     
     # 2. Coordinates
     prop_data, error = get_coordinates(full_address, parsed, api_key)
     if error:
-        return None, None, f"Coordinate Error: {error}"
+        return None, None, None, f"Coordinate Error: {error}"
     
     # Handle legacy cache tuple if present, or new dict
     if isinstance(prop_data, tuple):
@@ -456,7 +456,16 @@ def find_comps(full_address, radius, api_key):
     # Sort by Price (High to Low) as requested
     verified_comps.sort(key=lambda x: float(x.get('price', 0) if str(x.get('price', 0)).replace('.','',1).isdigit() else 0), reverse=True)
 
-    return verified_comps, raw_comps, None
+    # Construct Subject Data
+    subject = {
+        'address': full_address,
+        'lat': lat,
+        'lon': lon,
+        'sqft': subject_sqft,
+        'zip': parsed.get('zip_code')
+    }
+
+    return verified_comps, raw_comps, subject, None
 
 def main():
     import sys
@@ -469,7 +478,7 @@ def main():
     print(f"Processing: {full_address}")
     
     # Default radius 1 for CLI
-    comps, raw, error = find_comps(full_address, 1, API_KEY)
+    comps, raw, subject, error = find_comps(full_address, 1, API_KEY)
     
     if error:
         print(error)

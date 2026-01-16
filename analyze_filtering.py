@@ -40,7 +40,7 @@ def get_comps(lat, lon, radius):
     return []
 
 def main():
-    target_addr = "15158 Charmeran Ave, San Jose, CA 95124"
+    target_addr = "3043 Rosato Ct, San Jose, CA 95135"
     print(f"Analyzing comps for: {target_addr}")
     
     subject = get_property_details(target_addr)
@@ -55,7 +55,7 @@ def main():
     
     print(f"Subject: SqFt={s_sqft}, Zip={s_zip}, Lat={s_lat}, Lon={s_lon}")
     
-    raw_comps = get_comps(s_lat, s_lon, 1)
+    raw_comps = get_comps(s_lat, s_lon, 1) # Default radius 1
     print(f"Raw Comps: {len(raw_comps)}")
     
     three_years_ago = datetime.now() - timedelta(days=365*3)
@@ -63,6 +63,8 @@ def main():
     for i, c in enumerate(raw_comps):
         reason = "PASS"
         addr = c.get('address')
+        dist = c.get('distance', 'N/A')
+        comp_zip = c.get('zipCode')
         
         # 1. Date
         date_str = str(c.get('transferDate', ''))
@@ -78,8 +80,8 @@ def main():
             
         # 2. Zip
         if reason == "PASS":
-            if s_zip and c.get('zipCode') != s_zip:
-                reason = f"Zip Mismatch ({c.get('zipCode')})"
+            if s_zip and comp_zip != s_zip:
+                reason = f"Zip Mismatch ({comp_zip})"
                 
         # 3. Residential
         if reason == "PASS":
@@ -111,7 +113,7 @@ def main():
             except:
                 pass
                 
-        print(f"{i+1}. {addr}: {reason} [Price: ${price}]")
+        print(f"{i+1}. {addr} (Dist: {dist} mi): {reason} [Price: ${price}]")
 
 if __name__ == "__main__":
     main()
