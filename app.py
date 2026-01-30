@@ -4,7 +4,8 @@ import pandas as pd
 import io
 import contextlib
 from dotenv import load_dotenv
-from get_comps import find_comps, parse_address_string
+from get_comps import find_comps, parse_address_string, get_coordinates
+from flipper_service import find_flips, find_flips_via_magic_search
 from google import genai
 
 load_dotenv()
@@ -47,6 +48,72 @@ with st.sidebar:
     # Radius Slider
     st.divider()
     search_radius = st.sidebar.slider("Search Radius (Miles)", min_value=0.1, max_value=5.0, value=1.0, step=0.1)
+    
+    st.divider()
+    app_mode = st.selectbox("Select Tool", ["Comps Finder", "Flipper Detector"])
+
+if app_mode == "Flipper Detector":
+    st.title("💸 High-Velocity Sales Detector")
+    st.markdown("Find properties bought and sold within **90 - 550 days** (approx 3 - 18 months). Includes **Losses/Wholesale** deals.")
+    
+    addr_input = st.text_input("Enter Address", placeholder="e.g. 3043 Rosato Ct, San Jose, CA")
+    
+    @st.cache_data(show_spinner=False)
+    def get_flips_magic_cached(zip_code, api_key):
+        from flipper_service import find_flips_via_magic_search
+        return find_flips_via_magic_search(zip_code, api_key, limit=100, days_back=550)
+
+    if st.button("Scan for Velocity Deals", type="primary"):
+        if not api_key_input:
+            st.error("API Key missing.")
+        elif not addr_input:
+            st.error("Enter an Address.")
+        else:
+            parsed = parse_address_string(addr_input)
+            if not parsed or not parsed.get('zip_code'):
+                st.error("Invalid Address Format. Could not extract Zip Code.")
+            else:
+                target_zip = parsed['zip_code']
+                st.info(f"Scanning Zip Code: {target_zip} (3-Page Deep Scan)...")
+                
+                with st.spinner(f"Scanning {target_zip} for rapid sales (90-550 Days)..."):
+                    # Search (Cached)
+                    flips, err = get_flips_magic_cached(target_zip, api_key_input)
+                    
+                    if err:
+                        st.error(err)
+                    elif not flips:
+                        st.info(f"No high-velocity deals found in {target_zip} (90-550 days hold).")
+                    else:
+                        st.success(f"Found {len(flips)} Verified Flips in {target_zip}!")
+                        
+                        # Summary Metrics
+                        avg_profit = sum([f['profit'] for f in flips]) / len(flips)
+                        st.metric("Avg Gross Profit", f"${avg_profit:,.0f}")
+                        st.divider()
+                        
+                        for f in flips:
+                            with st.container():
+                                st.subheader(f.get('address'))
+                                c1, c2, c3, c4 = st.columns(4)
+                                c1.metric("Profit", f"${f['profit']:,.0f}", f"{f['margin']}%")
+                                c2.metric("Hold Time", f"{f['hold_months']} Mo")
+                                c3.metric("Buy Price", f"${f['bought_price']:,}")
+                                c4.metric("Sell Price", f"${f['sold_price']:,}")
+                                
+                                st.caption(f"Bought: {f['bought_date']} | Sold: {f['sold_date']}")
+                                
+                                # Display Flip Type
+                                ftype = f.get('type')
+                                fgrantee = f.get('flipper_name', 'Unknown')
+                                if "Corporate" in ftype:
+                                    st.markdown(f"**Type:** :office: `{ftype}` ({fgrantee})")
+                                else:
+                                    st.markdown(f"**Type:** :person: `{ftype}` ({fgrantee})")
+                                
+                                st.divider()
+    st.stop()
+
 
 # Main Input
 address_input = st.text_input("Enter Property Address", placeholder="e.g. 2048 Mayfield Ave, San Jose, CA 95130", help="Format: Street, City, State Zip")
