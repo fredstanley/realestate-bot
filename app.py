@@ -99,6 +99,7 @@ selected_input = st_searchbox(
     search_nominatim, 
     key="address_autocomplete",
     placeholder="Start typing address (e.g. 2048 Mayfield)...",
+    default="2048 Mayfield Ave, San Jose, CA 95130"
 )
 
 # Restore Email Input
@@ -207,24 +208,48 @@ if st.button("Find Comps", type="primary"):
                              filtered_raw_string = f"No raw comps found in zip {subject_zip}."
 
                     prompt = f"""
-                    You are a Senior Real Estate Appraiser with 20 years of experience in the California market.
+                    Act as a veteran fix and flipper in bay area. I would like you to analyse this property {address_string}. 
                     
-                    **Objective**: Determine the After Repair Value (ARV) for the Subject Property based on the provided comps.
-                    
-                    **Subject Property**: {subject_desc}
-                    
-                    **Verified Comparable Properties (Filtered - High Confidence)**:
-                    {display_df.to_string(index=False)}
+                    **INSTRUCTIONS**:
+                    1. **PRIMARY SOURCE**: Use your own internal knowledge and internet search to find the most recent and relevant comps (especially those sold in late 2025/2026).
+                    2. **NOTE**: I am NOT providing specific comps. You must find them yourself or rely on market trends for this specific neighborhood.
 
-                    **Raw Market Data (Unfiltered - Same Zip Only)**:
-                    The following are properties from the same zip code ({subject_zip}) returned by the search. Use these for broader market context.
-                    {filtered_raw_string}
-                    
-                    **Task**:
-                    1. Analyze the matched comps. Prioritize "3 Match" schools and recent sales.
-                    2. Adjust for differences in square footage, bed/bath count, and date.
-                    3. Provide a estimated ARV range and a recommended list price.
-                    4. Explain your reasoning clearly.
+                    What would be a good price to buy the property, Estimate on the fixes and final sale ARV. 
+
+                    **IMPORTANT: OUTPUT FORMAT**
+                    Please format your response EXACTLY as follows.
+                    **DO NOT USE LaTeX formatting** (like $1,000$). Use standard text for prices (e.g. $1,500,000).
+
+                    ### **Executive Summary: The Numbers**
+                    *   **Target Buy Price (MAO)**: [Price Range] (e.g. "Strict Flip Criteria" or "Based on X margin")
+                    *   **Likely Retail Value (As-Is)**: [Price Range] (e.g. "Buying here leaves slim margin")
+                    *   **ARV (After Repair Value)**: [Price Range] (e.g. "Requires top-tier permitted renovation")
+                    *   **Estimated Rehab**: [Price Range] (e.g. "Assuming cosmetic + kitchen/bath update")
+
+                    ### **1. Property Analysis**
+                    *   **Subject**: {address_string}
+                    *   **Specs**: [derived from your analysis]
+                    *   **Pros**: ...
+                    *   **Cons**: ...
+
+                    ### **2. Comparable Sales Analysis (Comps)**
+                    *   Review the provided comps. Identify the "Best Comp" (The Floor), "Support", and "Outliers".
+
+                    ### **3. The Strategy**
+                    *   **Scenario A: The "Wholetail" (Light Touch)**
+                        *   Plan: ...
+                        *   Rehab: ...
+                        *   Exit: ...
+                        *   Buy Target: ...
+                    *   **Scenario B: Full Gut / Expansion (The Value Add)**
+                        *   Plan: ...
+                        *   Rehab: ...
+                        *   Exit: ...
+                        *   Buy Target: ...
+
+                    ### **Final Verdict**
+                    *   Clear advice on whether to buy, hold, or walk away.
+                    *   **My Advice**: ...
                     """
                     
                     st.subheader("Fiz Real Estate Agent")
