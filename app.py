@@ -6,6 +6,7 @@ import contextlib
 from dotenv import load_dotenv
 from get_comps import find_comps, parse_address_string
 from google import genai
+from email_utils import send_email_with_pdf
 
 load_dotenv()
 
@@ -33,23 +34,38 @@ st.set_page_config(page_title="Realie.ai Comps Finder", page_icon="🏠")
 st.title("🏠 Real Estate Comps Finder")
 st.markdown("Find the top comp properties (sold in the last 24 months) using **Realie.ai** with Census School Verification.")
 
+# Placeholder for Download Button
+download_placeholder = st.empty()
+
 # Sidebar for API Key
 with st.sidebar:
     st.header("Settings")
-    api_key_input = st.text_input("Realie API Key", type="password", value=os.getenv("REALIE_API_KEY", ""))
-    if not api_key_input:
-        st.warning("Please enter your API Key to proceed.")
+    # Realie API Key
+    env_realie_key = os.getenv("REALIE_API_KEY")
+    if env_realie_key:
+        api_key_input = env_realie_key
+        st.success("✅ Realie API Key loaded")
+    else:
+        api_key_input = st.text_input("Realie API Key", type="password")
+        if not api_key_input:
+            st.warning("Please enter your API Key to proceed.")
         
     # Gemini API Key
-    default_gemini_key = os.getenv("GEMINI_API_KEY", "")
-    gemini_key = st.sidebar.text_input("Gemini API Key", type="password", value=default_gemini_key)
+    env_gemini_key = os.getenv("GEMINI_API_KEY")
+    if env_gemini_key:
+        gemini_key = env_gemini_key
+        st.success("✅ Gemini API Key loaded")
+    else:
+        gemini_key = st.text_input("Gemini API Key", type="password")
     
     # Radius Slider
     st.divider()
     search_radius = st.sidebar.slider("Search Radius (Miles)", min_value=0.1, max_value=5.0, value=1.0, step=0.1)
 
+
 # Main Input
 address_input = st.text_input("Enter Property Address", placeholder="e.g. 2048 Mayfield Ave, San Jose, CA 95130", help="Format: Street, City, State Zip")
+recipient_email = st.text_input("Email Report To (Optional)", placeholder="client@example.com", help="If provided, the report will be auto-emailed here.")
 
 if st.button("Find Comps", type="primary"):
     if not api_key_input:
@@ -153,6 +169,47 @@ if st.button("Find Comps", type="primary"):
                     
                 except Exception as e:
                     st.error(f"AI Analysis Failed: {e}")
+
+                # PDF Generation
+                if 'full_response' in locals():
+                    from pdf_report import generate_pdf
+                    
+                    # Generate PDF
+                    pdf_bytes = generate_pdf(full_response, comps, address_input)
+                    
+                    st.download_button(
+                        label="📄 Download ARV Report (PDF)",
+                        data=pdf_bytes,
+                        file_name=f"ARV_Report_{address_input.replace(' ', '_').replace(',', '')}.pdf",
+                        mime="application/pdf"
+                    )
+                    
+                    # Also show at the top
+                    download_placeholder.download_button(
+                        label="📄 Download ARV Report (PDF) - Top",
+                        data=pdf_bytes,
+                        file_name=f"ARV_Report_{address_input.replace(' ', '_').replace(',', '')}.pdf",
+                        mime="application/pdf",
+                        key="download_top"
+                    )
+
+                    # Email Sending Button
+                    # Auto-Email Logic
+                    # Auto-Email Logic
+                    if recipient_email:
+                        st.divider()
+                        env_sender = os.getenv("SENDER_EMAIL")
+                        env_app_pass = os.getenv("APP_PASSWORD")
+
+                        if not env_sender or not env_app_pass:
+                           st.warning("⚠️ Email provided, but SENDER credentials are missing in .env. Cannot auto-send.")
+                        else:
+                            with st.spinner(f"Auto-sending report to {recipient_email}..."):
+                                success, msg = send_email_with_pdf(pdf_bytes, recipient_email, env_sender, env_app_pass, address_input)
+                                if success:
+                                    st.success(f"✅ Email sent successfully to {recipient_email}!")
+                                else:
+                                    st.error(f"❌ Failed to send email: {msg}")
                 
             # Display Execution Log
             st.divider()
