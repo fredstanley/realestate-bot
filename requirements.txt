@@ -37,3 +37,4 @@ urllib3==2.6.3
 python-dotenv
 google-genai
 fpdf2
+streamlit-searchbox

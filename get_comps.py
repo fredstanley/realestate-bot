@@ -3,6 +3,9 @@ import requests
 from datetime import datetime, timedelta
 import json
 from dotenv import load_dotenv
+from google import genai
+import re
+
 
 load_dotenv()
 
@@ -40,6 +43,34 @@ def parse_address_string(full_address):
         "state": state,
         "zip_code": zip_code
     }
+
+def sanitize_address_ai(address_str, api_key):
+    """
+    Uses Gemini to standardize an address string into structured data.
+    Returns: dict {address, city, state, zip_code} or None
+    """
+    if not api_key:
+        return parse_address_string(address_str) # Fallback
+
+    client = genai.Client(api_key=api_key)
+    prompt = f"""
+    Parse this address into structured distinct parts. If parts are missing (like City or State), infer them if possible or leave blank.
+    Input: "{address_str}"
+    
+    Output strictly valid JSON with these keys: "address" (street only), "city", "state" (2-letter), "zip_code".
+    Example Output: {{"address": "2048 Mayfield Ave", "city": "San Jose", "state": "CA", "zip_code": "95130"}}
+    """
+    
+    try:
+        response = client.models.generate_content(
+            model='gemini-3-flash-preview',
+            contents=prompt,
+            config={'response_mime_type': 'application/json'}
+        )
+        return json.loads(response.text)
+    except Exception as e:
+        print(f"AI Sanitization Failed: {e}")
+        return parse_address_string(address_str)
 
 CACHE_FILE = ".coords_cache.json"
 
@@ -213,24 +244,56 @@ def haversine(lat1, lon1, lat2, lon2):
     r = 3956 # Radius of earth in miles. Use 6371 for km
     return c * r
 
-def find_comps(full_address, radius, api_key):
+def find_comps(full_address, radius, api_key, gemini_key=None, known_coords=None):
     """
     Orchestrates the comps search process:
-    1. Parse Address
-    2. Get Coordinates (w/ caching)
+    1. Parse Address (AI Sanitization)
+    2. Get Coordinates (w/ caching OR use known_coords)
     3. Get Comps
     4. Filter by Date (2 years) and Zip Code (School proxy)
     5. Return formatted list
     """
     comps_data = []
     
-    # 1. Parse
-    parsed = parse_address_string(full_address)
-    if not parsed:
-        return None, None, "Error: Could not parse address. Please use format: 'Address, City, State Zip'"
+    # 1. Parse / Sanitize
+    # Even if we have coords, we still want parsed address components for filtering (Zip, etc)
+    # But if sanitized fails, and we have coords, we might survive? 
+    # Let's still try to sanitize for display and filter purposes.
+    parsed = None
+    if gemini_key:
+        print(f"Sanitizing address: {full_address}")
+        parsed = sanitize_address_ai(full_address, gemini_key)
     
+    if not parsed:
+        # Fallback to simple parse
+        parsed = parse_address_string(full_address)
+
+    if not parsed or not parsed.get('state'):
+         # If strict parsing fails but we have coords, maybe we can proceed?
+         # But later filters rely on Zip. 
+         # Let's try to extract zip from non-AI parse if AI failed.
+         if not known_coords:
+             return None, None, f"Could not parse address '{full_address}'. Please add City and State."
+         
+    # Reconstruct standard string
+    clean_address_str = full_address
+    if parsed:
+        clean_address_str = f"{parsed.get('address', '')}, {parsed.get('city', '')}, {parsed.get('state', '')} {parsed.get('zip_code', '')}"
+    print(f"Resolved to: {clean_address_str}")
+
     # 2. Coordinates
-    prop_data, error = get_coordinates(full_address, parsed, api_key)
+    if known_coords:
+        print(f"Using known coordinates: {known_coords}")
+        prop_data = {
+            'lat': known_coords[0],
+            'lon': known_coords[1],
+            'sqft': None, # We don't have sqft from Nominatim usually
+            'details': {}
+        }
+        error = None
+    else:
+        prop_data, error = get_coordinates(clean_address_str, parsed, api_key)
+        
     if error:
         return None, None, f"Coordinate Error: {error}"
     
@@ -469,7 +532,9 @@ def main():
     print(f"Processing: {full_address}")
     
     # Default radius 1 for CLI
-    comps, raw, error = find_comps(full_address, 1, API_KEY)
+    # Default radius 1 for CLI
+    gemini_key = os.getenv("GEMINI_API_KEY") # Load for CLI usage
+    comps, raw, error = find_comps(full_address, 1, API_KEY, gemini_key)
     
     if error:
         print(error)

@@ -33,3 +33,10 @@
     - [x] Add Sidebar UI (Checkbox + Credentials Input)
     - [x] Create Email Module
     - [x] Integrate Send Logic into App
+- [x] Address Sanitization
+    - [x] Implement Gemini-based Address Parser
+    - [x] Integrate into Search Workflow
+- [x] Address Autocomplete
+    - [x] Add `streamlit-searchbox` dependency
+    - [x] Implement OpenStreetMap Search Logic
+    - [x] Replace Text Input with SearchBox

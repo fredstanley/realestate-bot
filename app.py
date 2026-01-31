@@ -7,15 +7,18 @@ from dotenv import load_dotenv
 from get_comps import find_comps, parse_address_string
 from google import genai
 from email_utils import send_email_with_pdf
+import requests
+from streamlit_searchbox import st_searchbox
+
 
 load_dotenv()
 
 @st.cache_data(show_spinner=False)
-def get_comps_with_log(address, radius, api_key):
+def get_comps_with_log(address, radius, api_key, gemini_key, known_coords=None):
     # Capture stdout
     f = io.StringIO()
     with contextlib.redirect_stdout(f):
-        comps, raw_comps, error = find_comps(address, radius, api_key)
+        comps, raw_comps, error = find_comps(address, radius, api_key, gemini_key, known_coords)
     return comps, raw_comps, error, f.getvalue()
 
 @st.cache_data(show_spinner=False)
@@ -63,18 +66,81 @@ with st.sidebar:
     search_radius = st.sidebar.slider("Search Radius (Miles)", min_value=0.1, max_value=5.0, value=1.0, step=0.1)
 
 
+import json
+
 # Main Input
-address_input = st.text_input("Enter Property Address", placeholder="e.g. 2048 Mayfield Ave, San Jose, CA 95130", help="Format: Street, City, State Zip")
+# Define Nominatim Search Function
+def search_nominatim(searchterm: str):
+    if not searchterm: 
+        return []
+    url = "https://nominatim.openstreetmap.org/search"
+    params = {
+        "q": searchterm,
+        "format": "json",
+        "countrycodes": "us",
+        "limit": 5,
+        "addressdetails": 1
+    }
+    headers = {'User-Agent': 'RealEstateCompsBot/1.0'}
+    try:
+        response = requests.get(url, params=params, headers=headers, timeout=5)
+        if response.status_code == 200:
+            data = response.json()
+            # Return list of tuples: (display_label, value_json_string)
+            # Serialize dict to string to avoid widget state issues
+            return [(d['display_name'], json.dumps(d)) for d in data]
+        else:
+            return []
+    except Exception:
+        return []
+
+st.markdown("### Property Search")
+selected_input = st_searchbox(
+    search_nominatim, 
+    key="address_autocomplete",
+    placeholder="Start typing address (e.g. 2048 Mayfield)...",
+)
+
+# Restore Email Input
 recipient_email = st.text_input("Email Report To (Optional)", placeholder="client@example.com", help="If provided, the report will be auto-emailed here.")
+
+# Handle Input Type
+address_string = ""
+known_coords = None
+
+if selected_input:
+    # Try to parse as JSON (new behavior)
+    try:
+        # It's a string, try to decode
+        input_data = json.loads(selected_input)
+        if isinstance(input_data, dict):
+            # User selected from dropdown
+            address_string = input_data.get('display_name', '')
+            try:
+                lat = float(input_data.get('lat'))
+                lon = float(input_data.get('lon'))
+                known_coords = (lat, lon)
+                st.success(f"📍 Location identified: {address_string[:50]}...")
+            except:
+                pass
+        else:
+            # Should not happen if logic holds, but fallback
+            address_string = str(selected_input)
+    except json.JSONDecodeError:
+        # User typed raw text (not a JSON string from dropdown)
+        address_string = str(selected_input)
+
+# Fallback text input if they want to override or didn't use searchbox? 
+# st_searchbox handles typing.
 
 if st.button("Find Comps", type="primary"):
     if not api_key_input:
         st.error("API Key is missing!")
-    elif not address_input:
-        st.error("Please enter an address.")
+    elif not address_string:
+        st.error("Please select or enter an address.")
     else:
-        with st.spinner("Fetching comps..."):
-            comps, raw_comps, error, output_log = get_comps_with_log(address_input, search_radius, api_key_input)
+        with st.spinner("Resolving address & Fetching comps..."):
+            comps, raw_comps, error, output_log = get_comps_with_log(address_string, search_radius, api_key_input, gemini_key, known_coords)
             
             if error:
                 st.error(error)
@@ -120,10 +186,10 @@ if st.button("Find Comps", type="primary"):
                     model_name = 'gemini-3-pro-preview'
                     
                     # Prepare Context
-                    subject_desc = f"{address_input} (Subject)" 
+                    subject_desc = f"{address_string} (Subject)" 
                     
                     # Parse subject zip for filtering raw comps
-                    parsed_addr = parse_address_string(address_input)
+                    parsed_addr = parse_address_string(address_string)
                     subject_zip = parsed_addr.get('zip_code') if parsed_addr else None
                     
                     filtered_raw_string = "No raw data available."
@@ -175,12 +241,12 @@ if st.button("Find Comps", type="primary"):
                     from pdf_report import generate_pdf
                     
                     # Generate PDF
-                    pdf_bytes = generate_pdf(full_response, comps, address_input)
+                    pdf_bytes = generate_pdf(full_response, comps, address_string)
                     
                     st.download_button(
                         label="📄 Download ARV Report (PDF)",
                         data=pdf_bytes,
-                        file_name=f"ARV_Report_{address_input.replace(' ', '_').replace(',', '')}.pdf",
+                        file_name=f"ARV_Report_{address_string.replace(' ', '_').replace(',', '')}.pdf",
                         mime="application/pdf"
                     )
                     
@@ -188,7 +254,7 @@ if st.button("Find Comps", type="primary"):
                     download_placeholder.download_button(
                         label="📄 Download ARV Report (PDF) - Top",
                         data=pdf_bytes,
-                        file_name=f"ARV_Report_{address_input.replace(' ', '_').replace(',', '')}.pdf",
+                        file_name=f"ARV_Report_{address_string.replace(' ', '_').replace(',', '')}.pdf",
                         mime="application/pdf",
                         key="download_top"
                     )
@@ -205,7 +271,7 @@ if st.button("Find Comps", type="primary"):
                            st.warning("⚠️ Email provided, but SENDER credentials are missing in .env. Cannot auto-send.")
                         else:
                             with st.spinner(f"Auto-sending report to {recipient_email}..."):
-                                success, msg = send_email_with_pdf(pdf_bytes, recipient_email, env_sender, env_app_pass, address_input)
+                                success, msg = send_email_with_pdf(pdf_bytes, recipient_email, env_sender, env_app_pass, address_string)
                                 if success:
                                     st.success(f"✅ Email sent successfully to {recipient_email}!")
                                 else:
