@@ -25,3 +25,11 @@
     - [x] Create Realtor System Prompt
     - [x] Automate AI Analysis (No Button)
     - [x] Display Streaming ARV Report
+- [x] PDF Report Generation
+    - [x] Add `fpdf2` dependency
+    - [x] Create PDF Generator Module (`pdf_report.py`)
+    - [x] Integrate into Streamlit App
+- [x] Email Integration
+    - [x] Add Sidebar UI (Checkbox + Credentials Input)
+    - [x] Create Email Module
+    - [x] Integrate Send Logic into App
